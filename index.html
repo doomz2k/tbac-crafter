@@ -402,13 +402,13 @@
         <div class="panel">
           <div class="panel-title">Material Stock <span class="pill" id="mat-stock-pill">0 materials</span></div>
           <div class="mat-add-row">
-            <div class="fg grow"><label>Add Material</label><select id="mat-select"><option value="">— Select material —</option></select></div>
+            <div class="fg grow"><label>Add Material</label><select id="mat-select" onchange="App.onMatSelectChange(this)"><option value="">— Select material —</option></select></div>
             <div class="fg sm"><label>Quality (0–1000)</label><input type="number" id="mat-add-qual" min="0" max="1000" step="1" placeholder="e.g. 850"/></div>
             <div class="fg sm">
-              <label>Quantity</label>
+              <label id="mat-qty-label">Quantity</label>
               <div style="display:flex;gap:6px;align-items:center">
                 <input type="number" id="mat-add-qty" min="0.001" step="any" placeholder="Amount" style="flex:1"/>
-                <div class="unit-toggle">
+                <div class="unit-toggle" id="mat-unit-toggle">
                   <button class="unit-btn active" id="unit-cscu" onclick="App.setUnit('cscu')">cSCU</button>
                   <button class="unit-btn" id="unit-scu" onclick="App.setUnit('scu')">SCU</button>
                 </div>
@@ -870,7 +870,8 @@ function getMemberStatus(member, bp){
   reqs.forEach(req=>{
     const stacks=mats[req.name];
     if(!stacks||!stacks.length) return;
-    const needed=req.quantity_scu?Math.round(req.quantity_scu*1000):req.quantity||0;
+    const isItem=req.kind==='item'||(!req.quantity_scu&&req.quantity);
+    const needed=isItem?(req.quantity||0):Math.round((req.quantity_scu||0)*1000);
     const have=stacks.reduce((s,e)=>s+e.qty,0);
     if(have>=needed) met++;
   });
@@ -902,7 +903,10 @@ function renderFindResults(){
           const stacks=h.m.materials?.[req.name]||[];
           const have=stacks.reduce((s,e)=>s+e.qty,0);
           const need=req.quantity_scu?Math.round(req.quantity_scu*1000):req.quantity||0;
-          return `${req.name}: ${have}/${need} cSCU`;
+          const isItemReq=req.kind==='item'||(!req.quantity_scu&&req.quantity);
+          const needAmt=isItemReq?(req.quantity||0):Math.round((req.quantity_scu||0)*1000);
+          const unitLbl=isItemReq?'units':'cSCU';
+          return `${req.name}: ${have}/${needAmt} ${unitLbl}`;
         }).join(', ')}`:'';
         return `<div class="member-status-row ${h.s}">
           <span class="member-status-name ${h.s}">${h.m.handle}</span>
@@ -973,18 +977,21 @@ App.runPlanner=function(){
   });
 
   const rows=bp.ingredients.map(i=>{
-    const needed=(i.quantity_scu?Math.round(i.quantity_scu*1000):i.quantity||0)*qty;
+    const isItem=i.kind==='item'||(!i.quantity_scu&&i.quantity);
+    const needed=(isItem?(i.quantity||0):Math.round((i.quantity_scu||0)*1000))*qty;
+    const unit=isItem?'units':'cSCU';
     const have=orgStock[i.name]||0;
     const status=have>=needed?'met':have>0?'partial':'missing';
     return `<div class="planner-mat-row ${status}">
       <span class="planner-mat-name">${i.name}</span>
-      <span class="planner-mat-need">Need: ${needed} cSCU</span>
-      <span class="planner-mat-have">Have: ${have} cSCU</span>
+      <span class="planner-mat-need">Need: ${needed} ${unit}</span>
+      <span class="planner-mat-have">Have: ${have} ${unit}</span>
     </div>`;
   }).join('');
 
   const allMet=bp.ingredients.every(i=>{
-    const needed=(i.quantity_scu?Math.round(i.quantity_scu*1000):i.quantity||0)*qty;
+    const isItem=i.kind==='item'||(!i.quantity_scu&&i.quantity);
+    const needed=(isItem?(i.quantity||0):Math.round((i.quantity_scu||0)*1000))*qty;
     return (orgStock[i.name]||0)>=needed;
   });
 
@@ -1023,6 +1030,29 @@ App.runDemand=function(){
 // ── MATERIALS ──────────────────────────────────────────────────────────────────
 function qualColour(q){q=parseInt(q);if(q>=900)return'#00e676';if(q>=700)return'#00c8ff';if(q>=500)return'#f0a500';if(q>=300)return'#ff8888';return'var(--text2)';}
 
+App.onMatSelectChange=function(sel){
+  const name=sel.value;
+  const mat=allMats.find(m=>m.name===name);
+  const isItem=mat&&mat.kind==='item';
+  const toggle=document.getElementById('mat-unit-toggle');
+  const label=document.getElementById('mat-qty-label');
+  const qtyInput=document.getElementById('mat-add-qty');
+  if(isItem){
+    toggle.style.display='none';
+    label.textContent='Quantity (units)';
+    qtyInput.placeholder='e.g. 7';
+    qtyInput.step='1';
+    qtyInput.min='1';
+    matUnit='units';
+  }else{
+    toggle.style.display='flex';
+    label.textContent='Quantity';
+    qtyInput.placeholder=matUnit==='scu'?'e.g. 0.36':'e.g. 360';
+    qtyInput.step='any';
+    qtyInput.min='0.001';
+    if(matUnit==='units') matUnit='cscu';
+  }
+};
 App.setUnit=function(u){
   matUnit=u;
   document.getElementById('unit-cscu').classList.toggle('active',u==='cscu');
@@ -1042,12 +1072,17 @@ App.addMaterialEntry=function(){
   if(!name){showToast('Select a material first',true);return;}
   if(isNaN(qual)||qual<0||qual>1000){showToast('Quality must be 0–1000',true);return;}
   if(isNaN(rawQty)||rawQty<=0){showToast('Enter a valid quantity',true);return;}
-  const qty=Math.round(matUnit==='scu'?rawQty*1000:rawQty);
+  let qty;
+  if(matUnit==='units') qty=Math.round(rawQty);
+  else qty=Math.round(matUnit==='scu'?rawQty*1000:rawQty);
   if(qty<1){showToast('Quantity too small',true);return;}
   if(!myMats[name]) myMats[name]=[];
+  const mat=allMats.find(m=>m.name===name);
+  const isItem=mat&&mat.kind==='item';
   const ex=myMats[name].find(e=>e.quality===qual);
-  if(ex){ex.qty+=qty;showToast(`Added ${qty} cSCU to ${name} @ q${qual}`);}
-  else{myMats[name].push({quality:qual,qty});myMats[name].sort((a,b)=>b.quality-a.quality);}
+  const unit=isItem?'units':'cSCU';
+  if(ex){ex.qty+=qty;showToast(`Added ${qty} ${unit} to ${name} @ q${qual}`);}
+  else{myMats[name].push({quality:qual,qty,kind:isItem?'item':'resource'});myMats[name].sort((a,b)=>b.quality-a.quality);}
   document.getElementById('mat-add-qual').value='';
   document.getElementById('mat-add-qty').value='';
   document.getElementById('mat-select').value='';
@@ -1091,7 +1126,7 @@ function renderMatList(){
       const colour=qualColour(e.quality);
       return `<div class="mat-entry">
         <span class="mat-entry-qual" style="color:${colour}">q${e.quality}</span>
-        <span class="mat-entry-label">cSCU</span>
+        <span class="mat-entry-label">${e.kind==='item'?'units':'cSCU'}</span>
         <div class="qty-ctrl">
           <button class="qty-btn" onclick="App.adjustQty('${sn}',${e.quality},-1)">−</button>
           <input type="number" class="qty-field" data-mat="${name}" data-qual="${e.quality}" value="${e.qty}" min="0" step="1" onchange="App.setQty('${sn}',${e.quality},this)" onblur="App.setQty('${sn}',${e.quality},this)"/>
