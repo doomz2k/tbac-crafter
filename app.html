@@ -1047,9 +1047,8 @@ function qualColour(q){q=parseInt(q);if(q>=900)return'#00e676';if(q>=700)return'
 
 App.onMatSelectChange=function(sel){
   const name=sel.value;
-  const mat=allMats.find(m=>m.name===name);
-  console.log('Mat selected:',name,'kind:',mat?.kind,'allMats sample:',allMats.slice(0,3));
-  const isItem=mat&&mat.kind==='item';
+  // Detect item-type by checking blueprint ingredients — if any use quantity (not quantity_scu), it's discrete
+  const isItem=blueprints.some(bp=>bp.ingredients.some(i=>i.name===name&&!i.quantity_scu&&i.quantity));
   const toggle=document.getElementById('mat-unit-toggle');
   const label=document.getElementById('mat-qty-label');
   const qtyInput=document.getElementById('mat-add-qty');
