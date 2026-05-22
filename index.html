@@ -276,6 +276,7 @@
   <div class="hdr-pills">
     <div class="pill-status"><div class="sdot amber" id="db-dot"></div><span id="db-status">Connecting…</span></div>
     <div class="pill-status"><div class="sdot amber" id="data-dot"></div><span id="data-status">Loading…</span></div>
+    <button class="hdr-btn" onclick="App.resetProfile()">↺ Reset Me</button>
     <button class="hdr-btn" id="admin-btn" onclick="App.openPin()">⚙ Admin</button>
   </div>
 </header>
@@ -1226,6 +1227,13 @@ function initInventoryUI(){
   }
 }
 
+App.resetProfile=function(){
+  if(!confirm('Clear your local profile? This only affects this device — your org data in Firestore is untouched.')) return;
+  ['sc_handle','sc_owned','sc_starred','sc_materials_v2','sc_wikelo','sc_updated'].forEach(k=>localStorage.removeItem(k));
+  handle=null; ownedBPs=new Set(); starredBPs=new Set(); myMats={}; myWikelo={};
+  initInventoryUI();
+  showToast('Local profile cleared — enter your handle to start fresh');
+};
 App.saveHandle=function(){const val=document.getElementById('handle-input').value.trim();if(!val)return;handle=val;localStorage.setItem('sc_handle',handle);initInventoryUI();};
 App.changeHandle=function(){if(!confirm('Change handle? Your saved inventory will stay intact.'))return;handle=null;localStorage.removeItem('sc_handle');document.getElementById('handle-input').value='';initInventoryUI();};
 App.exportProfile=function(){
