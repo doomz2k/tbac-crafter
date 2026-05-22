@@ -104,19 +104,21 @@ async function startFetch() {
     const bpMatNames = new Set();
     blueprints.forEach(bp => bp.ingredients.forEach(i => bpMatNames.add(i.name)));
 
-    // Slim commodities — keep all fields useful for crafting
+    // Slim commodities — only keep ones actually used as blueprint ingredients
     const commodityNames = new Set();
-    const materials = rawMats.map(m => {
-      commodityNames.add(m.name);
-      return {
-        name: m.name,
-        uuid: m.uuid,
-        kind: 'resource',
-        scu: m.scu ?? null,
-        buy_price: m.price_buy ?? null,
-        sell_price: m.price_sell ?? null
-      };
-    });
+    const materials = rawMats
+      .filter(m => bpMatNames.has(m.name))
+      .map(m => {
+        commodityNames.add(m.name);
+        return {
+          name: m.name,
+          uuid: m.uuid,
+          kind: 'resource',
+          scu: m.scu ?? null,
+          buy_price: m.price_buy ?? null,
+          sell_price: m.price_sell ?? null
+        };
+      });
 
     // Add item-type ingredients that aren't in the commodities list
     let extraCount = 0;
