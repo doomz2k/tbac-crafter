@@ -646,7 +646,7 @@ App.adminFetchData=async function(){
     document.getElementById('admin-prog').style.width='100%';
     alog('✓ All data pushed successfully!','ok');
     showToast('Data pushed to org ✓');
-    initData(payload);
+    try{initData(payload);}catch(e2){alog('Warning: local refresh error (data still pushed): '+e2.message,'info');}
   }catch(e){alog('Error: '+e.message,'err');showToast('Push failed',true);}
   btn.disabled=false; btn.textContent='↻ Fetch & Push All Data';
 };
@@ -691,7 +691,7 @@ function initData(data){
 
   const ps=document.getElementById('planner-bp-select');
   while(ps.options.length>1)ps.remove(1);
-  [...blueprints].sort((a,b)=>a.output_name.localeCompare(b.output_name)).forEach(bp=>{const o=document.createElement('option');o.value=bp.uuid;o.textContent=bp.output_name;ps.appendChild(o);});
+  [...blueprints].filter(b=>b.output_name).sort((a,b)=>a.output_name.localeCompare(b.output_name)).forEach(bp=>{const o=document.createElement('option');o.value=bp.uuid;o.textContent=bp.output_name;ps.appendChild(o);});
 
   ['wikelo-browse-select','wikelo-add-select'].forEach(id=>{
     const sel=document.getElementById(id);
@@ -717,7 +717,7 @@ function renderDashboard(){
   const bpOwnerCount={};
   members.forEach(m=>(m.blueprints||[]).forEach(uuid=>{bpOwnerCount[uuid]=(bpOwnerCount[uuid]||0)+1;}));
   const rarest=blueprints
-    .filter(b=>bpOwnerCount[b.uuid]>=1)
+    .filter(b=>b.output_name&&bpOwnerCount[b.uuid]>=1)
     .sort((a,b)=>(bpOwnerCount[a.uuid]||0)-(bpOwnerCount[b.uuid]||0))
     .slice(0,8);
 
