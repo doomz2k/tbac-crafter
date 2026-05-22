@@ -515,6 +515,7 @@ window.App={};
 App.openPin=()=>{ if(isAdmin){switchTab('admin');return;} document.getElementById('pin-modal').classList.remove('hidden'); document.getElementById('pin-input').value=''; setTimeout(()=>document.getElementById('pin-input').focus(),100); };
 App.closePin=()=>document.getElementById('pin-modal').classList.add('hidden');
 App.checkPin=()=>{
+  const ADMIN_PIN='0007';
   if(document.getElementById('pin-input').value.trim()===ADMIN_PIN){
     isAdmin=true; document.getElementById('pin-modal').classList.add('hidden');
     document.getElementById('admin-nav-tab').classList.remove('hidden');
