@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>SC Data Fetcher</title>
+  <style>
+    body { background: #080c10; color: #c8dff0; font-family: 'Courier New', monospace; padding: 40px; max-width: 800px; margin: 0 auto; }
+    h1 { color: #00c8ff; font-size: 20px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 8px; }
+    p { color: #7a9ab5; font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
+    #log { background: #0d1520; border: 1px solid #1e3a5f; border-radius: 4px; padding: 20px; height: 320px; overflow-y: auto; font-size: 12px; margin-bottom: 20px; }
+    .line { padding: 2px 0; color: #7a9ab5; }
+    .line.ok { color: #00e676; }
+    .line.info { color: #00c8ff; }
+    .line.warn { color: #f0a500; }
+    .line.err { color: #ff4444; }
+    .progress { height: 3px; background: #1e3a5f; border-radius: 2px; margin-bottom: 20px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #00c8ff; box-shadow: 0 0 8px #00c8ff; transition: width 0.3s; width: 0%; }
+    button { background: #0077b6; color: #fff; border: 1px solid #00c8ff; padding: 12px 32px; font-family: inherit; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
+    button:hover { background: #00c8ff; color: #080c10; box-shadow: 0 0 20px rgba(0,200,255,0.4); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #dl-btn { background: #006400; border-color: #00e676; display: none; margin-left: 12px; }
+    #dl-btn:hover { background: #00e676; color: #080c10; }
+  </style>
+</head>
+<body>
+  <h1>SC Data Fetcher</h1>
+  <p>Fetches all blueprints and materials from the Star Citizen Wiki API, then downloads them as a single JSON file to bake into the Org Crafter app. Run this once now, and again after each game patch.</p>
+
+  <div class="progress"><div class="progress-fill" id="prog"></div></div>
+  <div id="log"></div>
+  <div>
+    <button id="start-btn" onclick="startFetch()">Fetch Data</button>
+    <button id="dl-btn" onclick="downloadData()">Download sc_data.json</button>
+  </div>
+
+<script>
+let fetchedData = null;
+
+function log(msg, type='') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = 'line ' + type;
+  line.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setProgress(pct) {
+  document.getElementById('prog').style.width = pct + '%';
+}
+
+async function fetchAll(endpoint, label) {
+  const items = [];
+  let page = 1;
+  while (true) {
+    const res = await fetch(`https://api.star-citizen.wiki/api/${endpoint}?limit=100&page=${page}`);
+    if (!res.ok) throw new Error(`${label} page ${page}: HTTP ${res.status}`);
+    const json = await res.json();
+    const batch = json.data || [];
+    if (!batch.length) break;
+    items.push(...batch);
+    const total = json.meta?.total || '?';
+    log(`${label}: ${items.length} / ${total}`, 'line');
+    if (batch.length < 100) break;
+    page++;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return items;
+}
+
+async function startFetch() {
+  document.getElementById('start-btn').disabled = true;
+  document.getElementById('log').innerHTML = '';
+  setProgress(0);
+
+  try {
+    log('Starting blueprint fetch…', 'info');
+    const rawBPs = await fetchAll('blueprints', 'Blueprints');
+    log(`✓ ${rawBPs.length} blueprints fetched`, 'ok');
+    setProgress(50);
+
+    log('Starting commodities fetch…', 'info');
+    const rawMats = await fetchAll('commodities', 'Materials');
+    log(`✓ ${rawMats.length} commodities fetched`, 'ok');
+    setProgress(90);
+
+    log('Processing data…', 'info');
+
+    // Slim blueprints
+    const blueprints = rawBPs.map(bp => ({
+      uuid: bp.uuid,
+      output_name: bp.output_name,
+      craft_time_label: bp.craft_time_label,
+      type_label: bp.output?.type_label || '',
+      ingredients: (bp.ingredients || []).map(i => ({
+        name: i.name,
+        quantity_scu: i.quantity_scu,
+        quantity: i.quantity,
+        kind: i.kind
+      }))
+    }));
+
+    // Get all ingredient names used across all blueprints
+    const bpMatNames = new Set();
+    blueprints.forEach(bp => bp.ingredients.forEach(i => bpMatNames.add(i.name)));
+
+    // Slim commodities — keep all fields useful for crafting
+    const commodityNames = new Set();
+    const materials = rawMats.map(m => {
+      commodityNames.add(m.name);
+      return {
+        name: m.name,
+        uuid: m.uuid,
+        kind: 'resource',
+        scu: m.scu ?? null,
+        buy_price: m.price_buy ?? null,
+        sell_price: m.price_sell ?? null
+      };
+    });
+
+    // Add item-type ingredients that aren't in the commodities list
+    let extraCount = 0;
+    for (const name of [...bpMatNames].sort()) {
+      if (!commodityNames.has(name)) {
+        materials.push({ name, uuid: null, kind: 'item', scu: null });
+        extraCount++;
+      }
+    }
+
+    // Sort all materials alphabetically
+    materials.sort((a,b) => a.name.localeCompare(b.name));
+
+    log(`${extraCount} item-type ingredients added`, 'warn');
+    log(`Total materials: ${materials.length}`, 'ok');
+
+    fetchedData = { blueprints, materials, fetched_at: new Date().toISOString(), version: '4.8' };
+
+    const sizeKB = Math.round(JSON.stringify(fetchedData).length / 1024);
+    log(`Data ready — ${sizeKB} KB`, 'ok');
+    setProgress(100);
+
+    document.getElementById('dl-btn').style.display = 'inline-block';
+    log('Click "Download sc_data.json" to save the file.', 'info');
+
+  } catch(e) {
+    log('Error: ' + e.message, 'err');
+    document.getElementById('start-btn').disabled = false;
+  }
+}
+
+function downloadData() {
+  if (!fetchedData) return;
+  const blob = new Blob([JSON.stringify(fetchedData)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sc_data.json';
+  a.click();
+}
+</script>
+</body>
+</html>
